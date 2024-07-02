@@ -51,10 +51,12 @@ func (c *Cache) Set(key, value []byte, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	go func() {
-		<-time.After(ttl)
-		delete(c.data, string(key))
-	}()
+	if ttl > 0 {
+		go func() {
+			<-time.After(ttl)
+			delete(c.data, string(key))
+		}()
+	}
 
 	c.data[string(key)] = value
 

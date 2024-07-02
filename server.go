@@ -2,14 +2,18 @@ package main
 
 import (
 	"TigerDB/cache"
+	"TigerDB/proto"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"time"
 )
 
 type ServerOpts struct {
 	ListenAddr string
 	IsLeader   bool
+	LeaderAddr string
 }
 
 type Server struct {
@@ -43,37 +47,35 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	defer func() {
-		conn.Close()
-	}()
+	defer conn.Close()
 
-	buf := make([]byte, 2048)
+	fmt.Println("connection made: ", conn.RemoteAddr())
+
 	for {
-		n, err := conn.Read(buf)
+		cmd, err := proto.ParseCommand(conn)
 		if err != nil {
-			log.Printf("conn read error: %s\n", err)
+			if err == io.EOF {
+				break
+			}
+			log.Println("parse command error: ", err)
 			break
 		}
+		fmt.Println(cmd)
+		go s.handleCommand(conn, cmd)
+	}
 
-		go s.handleCommand(conn, buf[:n])
+	fmt.Println("connection closed: ", conn.RemoteAddr())
+}
+
+func (s *Server) handleCommand(conn net.Conn, cmd any) {
+	switch v := cmd.(type) {
+	case *proto.CommandSet:
+		s.handleSetCommand(conn, v)
+	case *proto.CommandGet:
 	}
 }
 
-func (s *Server) handleCommand(conn net.Conn, rawCmd []byte) {
-	msg, err := parseMessage(rawCmd)
-	if err != nil {
-		fmt.Println("failed to parse command: ", err)
-		return
-	}
-	switch msg.Cmd {
-	case CMDSet:
-		if err := s.handleSetCmd(conn, msg); err != nil {
-			return
-		}
-	}
-}
-
-func (s *Server) handleSetCmd(conn net.Conn, msg *Message) error {
-	fmt.Println("handling the SET command: ", msg)
-	return nil
+func (s *Server) handleSetCommand(conn net.Conn, cmd *proto.CommandSet) error {
+	log.Printf("SET %s to %s", cmd.Key, cmd.Value)
+	return s.cache.Set(cmd.Key, cmd.Value, time.Duration(cmd.TTL))
 }
